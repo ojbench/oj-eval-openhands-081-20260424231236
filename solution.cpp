@@ -90,18 +90,6 @@ public:
             }
         }
     }
-    
-    void reset() {
-        for (int i = 0; i < n; i++) {
-            for (Edge& e : graph[i]) {
-                if (e.to < i) {
-                    e.cap = 0;
-                } else {
-                    e.cap = 1;
-                }
-            }
-        }
-    }
 };
 
 class GomoryHuTree {
@@ -109,29 +97,81 @@ private:
     int n;
     vector<vector<int>> tree;
     vector<vector<int>> tree_weight;
+    vector<int> parent, parent_weight;
+    vector<int> depth;
+    vector<vector<int>> up;
+    vector<vector<int>> min_edge;
+    int LOG;
     
-    void dfs(int u, int parent, int min_weight, int target, int& result) {
-        if (u == target) {
-            result = min_weight;
-            return;
+    void dfs_lca(int v, int p, int d) {
+        depth[v] = d;
+        up[v][0] = p;
+        min_edge[v][0] = (p == -1) ? 1e9 : tree_weight[v][0];
+        
+        for (int i = 1; i < LOG; i++) {
+            if (up[v][i-1] != -1) {
+                up[v][i] = up[up[v][i-1]][i-1];
+                min_edge[v][i] = min(min_edge[v][i-1], min_edge[up[v][i-1]][i-1]);
+            }
         }
-        for (int i = 0; i < tree[u].size(); i++) {
-            int v = tree[u][i];
-            int w = tree_weight[u][i];
-            if (v != parent) {
-                dfs(v, u, min(min_weight, w), target, result);
-                if (result != -1) return;
+        
+        for (int i = 0; i < tree[v].size(); i++) {
+            int to = tree[v][i];
+            if (to != p) {
+                // Find the weight of edge v-to
+                int weight = tree_weight[v][i];
+                // Swap tree_weight[to] to have the correct weight
+                for (int j = 0; j < tree[to].size(); j++) {
+                    if (tree[to][j] == v) {
+                        tree_weight[to][j] = weight;
+                        break;
+                    }
+                }
+                dfs_lca(to, v, d + 1);
             }
         }
     }
     
+    int get_min_on_path(int u, int v) {
+        if (depth[u] < depth[v]) swap(u, v);
+        
+        int result = 1e9;
+        
+        // Bring u up to depth of v
+        for (int i = LOG-1; i >= 0; i--) {
+            if (depth[u] - (1 << i) >= depth[v]) {
+                result = min(result, min_edge[u][i]);
+                u = up[u][i];
+            }
+        }
+        
+        if (u == v) return result;
+        
+        for (int i = LOG-1; i >= 0; i--) {
+            if (up[u][i] != -1 && up[u][i] != up[v][i]) {
+                result = min(result, min_edge[u][i]);
+                result = min(result, min_edge[v][i]);
+                u = up[u][i];
+                v = up[v][i];
+            }
+        }
+        
+        result = min(result, min_edge[u][0]);
+        result = min(result, min_edge[v][0]);
+        
+        return result;
+    }
+    
 public:
-    GomoryHuTree(int n) : n(n), tree(n), tree_weight(n) {}
+    GomoryHuTree(int n) : n(n), tree(n), tree_weight(n), parent(n), parent_weight(n) {
+        LOG = 1;
+        while ((1 << LOG) <= n) LOG++;
+        depth.resize(n);
+        up.assign(n, vector<int>(LOG, -1));
+        min_edge.assign(n, vector<int>(LOG, 1e9));
+    }
     
     void build(const vector<pair<int, int>>& edges) {
-        vector<int> parent(n);
-        vector<int> parent_weight(n);
-        
         // Initialize parent array
         for (int i = 1; i < n; i++) {
             parent[i] = 0;
@@ -171,13 +211,14 @@ public:
             tree_weight[i].push_back(parent_weight[i]);
             tree_weight[parent[i]].push_back(parent_weight[i]);
         }
+        
+        // Preprocess for LCA queries
+        dfs_lca(0, -1, 0);
     }
     
     int get_max_flow(int u, int v) {
         if (u == v) return 0;
-        int result = -1;
-        dfs(u, -1, 1e9, v, result);
-        return result;
+        return get_min_on_path(u, v);
     }
 };
 
