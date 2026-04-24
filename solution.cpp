@@ -73,152 +73,16 @@ public:
         }
     }
     
-    void get_reachable(int s, vector<bool>& reachable) {
-        reachable.assign(n, false);
-        queue<int> q;
-        q.push(s);
-        reachable[s] = true;
-        
-        while (!q.empty()) {
-            int v = q.front();
-            q.pop();
-            for (const Edge& e : graph[v]) {
-                if (e.cap > 0 && !reachable[e.to]) {
-                    reachable[e.to] = true;
-                    q.push(e.to);
+    void reset() {
+        for (int i = 0; i < n; i++) {
+            for (Edge& e : graph[i]) {
+                if (e.to < i) {
+                    e.cap = 0;
+                } else {
+                    e.cap = 1;
                 }
             }
         }
-    }
-};
-
-class GomoryHuTree {
-private:
-    int n;
-    vector<vector<int>> tree;
-    vector<vector<int>> tree_weight;
-    vector<int> parent, parent_weight;
-    vector<int> depth;
-    vector<vector<int>> up;
-    vector<vector<int>> min_edge;
-    int LOG;
-    
-    void dfs_lca(int v, int p, int d) {
-        depth[v] = d;
-        up[v][0] = p;
-        min_edge[v][0] = (p == -1) ? 1e9 : tree_weight[v][0];
-        
-        for (int i = 1; i < LOG; i++) {
-            if (up[v][i-1] != -1) {
-                up[v][i] = up[up[v][i-1]][i-1];
-                min_edge[v][i] = min(min_edge[v][i-1], min_edge[up[v][i-1]][i-1]);
-            }
-        }
-        
-        for (int i = 0; i < tree[v].size(); i++) {
-            int to = tree[v][i];
-            if (to != p) {
-                // Find the weight of edge v-to
-                int weight = tree_weight[v][i];
-                // Swap tree_weight[to] to have the correct weight
-                for (int j = 0; j < tree[to].size(); j++) {
-                    if (tree[to][j] == v) {
-                        tree_weight[to][j] = weight;
-                        break;
-                    }
-                }
-                dfs_lca(to, v, d + 1);
-            }
-        }
-    }
-    
-    int get_min_on_path(int u, int v) {
-        if (depth[u] < depth[v]) swap(u, v);
-        
-        int result = 1e9;
-        
-        // Bring u up to depth of v
-        for (int i = LOG-1; i >= 0; i--) {
-            if (depth[u] - (1 << i) >= depth[v]) {
-                result = min(result, min_edge[u][i]);
-                u = up[u][i];
-            }
-        }
-        
-        if (u == v) return result;
-        
-        for (int i = LOG-1; i >= 0; i--) {
-            if (up[u][i] != -1 && up[u][i] != up[v][i]) {
-                result = min(result, min_edge[u][i]);
-                result = min(result, min_edge[v][i]);
-                u = up[u][i];
-                v = up[v][i];
-            }
-        }
-        
-        result = min(result, min_edge[u][0]);
-        result = min(result, min_edge[v][0]);
-        
-        return result;
-    }
-    
-public:
-    GomoryHuTree(int n) : n(n), tree(n), tree_weight(n), parent(n), parent_weight(n) {
-        LOG = 1;
-        while ((1 << LOG) <= n) LOG++;
-        depth.resize(n);
-        up.assign(n, vector<int>(LOG, -1));
-        min_edge.assign(n, vector<int>(LOG, 1e9));
-    }
-    
-    void build(const vector<pair<int, int>>& edges) {
-        // Initialize parent array
-        for (int i = 1; i < n; i++) {
-            parent[i] = 0;
-        }
-        
-        // Build Gomory-Hu tree
-        for (int s = 1; s < n; s++) {
-            int t = parent[s];
-            
-            // Create flow network
-            MaxFlow mf(n);
-            for (const auto& edge : edges) {
-                mf.add_edge(edge.first, edge.second, 1);
-                mf.add_edge(edge.second, edge.first, 1);
-            }
-            
-            // Compute max flow
-            int flow = mf.max_flow(s, t);
-            parent_weight[s] = flow;
-            
-            // Find reachable vertices from s in residual graph
-            vector<bool> reachable;
-            mf.get_reachable(s, reachable);
-            
-            // Update parent pointers
-            for (int i = s + 1; i < n; i++) {
-                if (parent[i] == t && reachable[i]) {
-                    parent[i] = s;
-                }
-            }
-        }
-        
-        // Build tree adjacency lists
-        for (int i = 1; i < n; i++) {
-            tree[i].push_back(parent[i]);
-            tree[parent[i]].push_back(i);
-            tree_weight[i].push_back(parent_weight[i]);
-            tree_weight[parent[i]].push_back(parent_weight[i]);
-        }
-        
-        // Preprocess for LCA queries
-        dfs_lca(0, -1, 0);
-    }
-    
-    int get_max_flow(int u, int v) {
-        if (u == v) return 0;
-        return get_min_on_path(u, v);
     }
 };
 
@@ -237,13 +101,82 @@ int main() {
         edges.push_back({a, b});
     }
     
-    GomoryHuTree ght(n);
-    ght.build(edges);
-    
     long long total = 0;
-    for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-            total += ght.get_max_flow(i, j);
+    
+    // For small n, compute max flow directly for each pair
+    if (n <= 100) {
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                MaxFlow mf(n);
+                for (const auto& edge : edges) {
+                    mf.add_edge(edge.first, edge.second, 1);
+                    mf.add_edge(edge.second, edge.first, 1);
+                }
+                int flow = mf.max_flow(i, j);
+                total += flow;
+            }
+        }
+    } else {
+        // For larger n, use a more efficient approach
+        // Since max degree is 3 and all edges have unit capacity,
+        // the max flow between any two nodes is at most 3
+        
+        // Build adjacency list
+        vector<vector<int>> adj(n);
+        for (const auto& edge : edges) {
+            adj[edge.first].push_back(edge.second);
+            adj[edge.second].push_back(edge.first);
+        }
+        
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                // Quick check: if i and j are directly connected, flow is at least 1
+                bool direct = false;
+                for (int neighbor : adj[i]) {
+                    if (neighbor == j) {
+                        direct = true;
+                        break;
+                    }
+                }
+                
+                if (!direct) {
+                    // Check if there's a path
+                    vector<bool> visited(n, false);
+                    queue<int> q;
+                    q.push(i);
+                    visited[i] = true;
+                    bool found = false;
+                    
+                    while (!q.empty() && !found) {
+                        int v = q.front();
+                        q.pop();
+                        for (int neighbor : adj[v]) {
+                            if (!visited[neighbor]) {
+                                if (neighbor == j) {
+                                    found = true;
+                                    break;
+                                }
+                                visited[neighbor] = true;
+                                q.push(neighbor);
+                            }
+                        }
+                    }
+                    
+                    if (!found) {
+                        // No path, flow is 0
+                        continue;
+                    }
+                }
+                
+                // There is a path, compute actual max flow
+                MaxFlow mf(n);
+                for (const auto& edge : edges) {
+                    mf.add_edge(edge.first, edge.second, 1);
+                    mf.add_edge(edge.second, edge.first, 1);
+                }
+                int flow = mf.max_flow(i, j);
+                total += flow;
+            }
         }
     }
     
